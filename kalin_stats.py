@@ -39,19 +39,25 @@ def main():
     st.set_page_config(page_title="Kalin's Growth & Metrics", layout="wide")
     st.title("👶 Kalin's Growth & Metrics Tracker")
 
+    # Initialize Session State for Date and Time
+    now = get_now_brussels()
+    if 'selected_date' not in st.session_state:
+        st.session_state.selected_date = now.date()
+    if 'selected_time' not in st.session_state:
+        st.session_state.selected_time = now.time()
+
     # Navigation using Tabs at the top
     tab_enter, tab_trends = st.tabs(["📝 Enter Data", "📈 View Trends"])
 
     with tab_enter:
         st.header("New Measurements")
-        now = get_now_brussels()
-        with st.form("metrics_form", clear_on_submit=True):
+        with st.form("metrics_form", clear_on_submit=False):
             col1, col2 = st.columns(2)
             
             with col1:
                 st.subheader("General Metrics")
-                date = st.date_input("Date", now.date())
-                time = st.time_input("Time", now.time())
+                date = st.date_input("Date", value=st.session_state.selected_date)
+                time = st.time_input("Time", value=st.session_state.selected_time)
                 weight = st.number_input("Weight (kg)", min_value=0.0, step=0.01, format="%.2f", value=0.0)
                 height = st.number_input("Height (cm)", min_value=0.0, step=0.1, format="%.1f", value=0.0)
                 head_size = st.number_input("Head Size (cm)", min_value=0.0, step=0.1, format="%.1f", value=0.0)
@@ -69,6 +75,10 @@ def main():
             submit = st.form_submit_button("Save Metrics")
 
             if submit:
+                # Update session state for persistence
+                st.session_state.selected_date = date
+                st.session_state.selected_time = time
+                
                 # Calculate total feeding
                 total_feed = f_formula + f_breast + f_bottle
                 
@@ -94,7 +104,7 @@ def main():
                     )
                     session.add(new_metric)
                     session.commit()
-                    st.success(f"Metrics saved successfully! Total Feeding: {total_feed} ml (at {dt.strftime('%H:%M')})")
+                    st.success(f"Metrics saved successfully! (At {dt.strftime('%H:%M')})")
                 except Exception as e:
                     st.error(f"Error saving data: {e}")
                 finally:
@@ -117,16 +127,20 @@ def main():
 
             if view_mode == "Raw Historical Data":
                 # Metrics to filter
-                all_metrics = [
+                numerical_metrics = [
                     'weight', 'height', 'head_size', 'temperature', 
                     'feed_formula', 'feed_breast', 'feed_bottle', 'feed_total'
                 ]
                 
-                selected_metrics = st.multiselect(
-                    "Select metrics to display on the graph",
-                    options=all_metrics,
-                    default=['weight', 'feed_total']
-                )
+                col_f1, col_f2 = st.columns([3, 1])
+                with col_f1:
+                    selected_metrics = st.multiselect(
+                        "Select numerical metrics to display",
+                        options=numerical_metrics,
+                        default=['weight', 'feed_total']
+                    )
+                with col_f2:
+                    show_diapers = st.checkbox("Show Diaper Changes", value=True)
 
                 if selected_metrics:
                     # Prepare data for plotting
@@ -143,8 +157,21 @@ def main():
                     
                     fig.update_layout(xaxis_title="Time", yaxis_title="Value")
                     st.plotly_chart(fig, use_container_width=True)
-                else:
-                    st.info("Please select at least one metric to visualize.")
+                
+                if show_diapers:
+                    st.write("**Diaper Changes Timeline**")
+                    diaper_df_raw = df[df['diaper_type'].notnull()]
+                    if not diaper_df_raw.empty:
+                        fig_diaper_raw = px.scatter(diaper_df_raw, x='timestamp', y='diaper_type', 
+                                                   color='diaper_type', title="Diaper Changes (Raw Events)",
+                                                   labels={'diaper_type': 'Type'},
+                                                   template="plotly_dark", height=300)
+                        st.plotly_chart(fig_diaper_raw, use_container_width=True)
+                    else:
+                        st.info("No diaper data recorded yet.")
+                
+                if not selected_metrics and not show_diapers:
+                    st.info("Please select at least one metric or show diapers to visualize.")
 
             else:
                 # Daily Aggregations logic
@@ -205,7 +232,7 @@ def main():
                         st.plotly_chart(fig_diaper, use_container_width=True)
                         
                         # Show total diaper count trend
-                        daily_diaper['Total'] = daily_diaper[["Wet", "Mixed", "Dry"]].sum(axis=1)
+                        daily_diaper['Total'] = daily_diaper[d_types].sum(axis=1)
                         fig_diaper_total = px.line(daily_diaper, x='date', y='Total',
                                                  title="Total Daily Diapers",
                                                  markers=True,
