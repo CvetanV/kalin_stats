@@ -27,8 +27,10 @@ class KalinMetric(Base):
     head_size = Column(Float)
     temperature = Column(Float)
     diaper_type = Column(String(50)) # Wet, Mixed, Dry
-    feeding_amount = Column(Float)
-    feeding_type = Column(String(50)) # Formula, Breast, Bottle
+    feed_formula = Column(Float)
+    feed_breast = Column(Float)
+    feed_bottle = Column(Float)
+    feed_total = Column(Float)
 
 # Create the table
 Base.metadata.create_all(engine)
@@ -47,21 +49,29 @@ def main():
             col1, col2 = st.columns(2)
             
             with col1:
+                st.subheader("General Metrics")
                 date = st.date_input("Date", now.date())
                 time = st.time_input("Time", now.time())
                 weight = st.number_input("Weight (kg)", min_value=0.0, step=0.01, format="%.2f", value=0.0)
                 height = st.number_input("Height (cm)", min_value=0.0, step=0.1, format="%.1f", value=0.0)
                 head_size = st.number_input("Head Size (cm)", min_value=0.0, step=0.1, format="%.1f", value=0.0)
+                temp = st.number_input("Temperature (°C)", min_value=0.0, step=0.1, format="%.1f", value=0.0)
             
             with col2:
-                temp = st.number_input("Temperature (°C)", min_value=0.0, step=0.1, format="%.1f", value=0.0)
+                st.subheader("Feeding & Diaper")
                 diaper = st.selectbox("Diaper Change", ["N/A", "Wet", "Mixed", "Dry"])
-                feed_amt = st.number_input("Feeding Amount (ml)", min_value=0.0, step=5.0, value=0.0)
-                feed_type = st.selectbox("Feeding Type", ["N/A", "Formula", "Breast", "Bottle"])
+                st.write("---")
+                st.write("**Feeding Volumes (ml)**")
+                f_formula = st.number_input("Formula", min_value=0.0, step=5.0, value=0.0)
+                f_breast = st.number_input("Breast", min_value=0.0, step=5.0, value=0.0)
+                f_bottle = st.number_input("Bottle", min_value=0.0, step=5.0, value=0.0)
 
             submit = st.form_submit_button("Save Metrics")
 
             if submit:
+                # Calculate total feeding
+                total_feed = f_formula + f_breast + f_bottle
+                
                 # Combine date and time and make it aware of Brussels timezone
                 dt = BRUSSELS_TZ.localize(datetime.combine(date, time))
                 
@@ -77,12 +87,14 @@ def main():
                         head_size=head_size if head_size > 0 else None,
                         temperature=temp if temp > 0 else None,
                         diaper_type=diaper if diaper != "N/A" else None,
-                        feeding_amount=feed_amt if feed_amt > 0 else None,
-                        feeding_type=feed_type if feed_type != "N/A" else None
+                        feed_formula=f_formula if f_formula > 0 else None,
+                        feed_breast=f_breast if f_breast > 0 else None,
+                        feed_bottle=f_bottle if f_bottle > 0 else None,
+                        feed_total=total_feed if total_feed > 0 else None
                     )
                     session.add(new_metric)
                     session.commit()
-                    st.success(f"Metrics saved successfully! (Time: {dt.strftime('%H:%M')})")
+                    st.success(f"Metrics saved successfully! Total Feeding: {total_feed} ml (at {dt.strftime('%H:%M')})")
                 except Exception as e:
                     st.error(f"Error saving data: {e}")
                 finally:
@@ -96,19 +108,19 @@ def main():
         df = pd.read_sql(query, engine)
 
         if not df.empty:
-            # Ensure timestamp is datetime and converted to Brussels if needed
+            # Ensure timestamp is datetime and converted to Brussels
             df['timestamp'] = pd.to_datetime(df['timestamp']).dt.tz_localize('UTC').dt.tz_convert(BRUSSELS_TZ)
             
             # Metrics to filter
             all_metrics = [
                 'weight', 'height', 'head_size', 'temperature', 
-                'feeding_amount'
+                'feed_formula', 'feed_breast', 'feed_bottle', 'feed_total'
             ]
             
             selected_metrics = st.multiselect(
                 "Select metrics to display on the graph",
                 options=all_metrics,
-                default=all_metrics
+                default=['weight', 'feed_total']
             )
 
             if selected_metrics:
@@ -127,7 +139,7 @@ def main():
                 fig.update_layout(xaxis_title="Time", yaxis_title="Value")
                 st.plotly_chart(fig, use_container_width=True)
                 
-                # Show Diaper & Feed Type info if relevant
+                # Show Recent Logs
                 st.subheader("Recent Logs")
                 st.dataframe(df.sort_values('timestamp', ascending=False), use_container_width=True)
             else:
