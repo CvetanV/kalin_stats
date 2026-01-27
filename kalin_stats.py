@@ -21,7 +21,7 @@ Base = declarative_base()
 class KalinMetric(Base):
     __tablename__ = 'kalin_metrics'
     id = Column(Integer, primary_key=True)
-    timestamp = Column(DateTime, nullable=False) # Explicitly set from form
+    timestamp = Column(DateTime(timezone=True), nullable=False) 
     weight = Column(Float)
     height = Column(Float)
     head_size = Column(Float)
@@ -82,8 +82,10 @@ def main():
                 # Calculate total feeding
                 total_feed = f_formula + f_breast + f_bottle
                 
-                # Combine date and time and make it aware of Brussels timezone
-                dt = BRUSSELS_TZ.localize(datetime.combine(date, time))
+                # Combine date and time (localized to Brussels)
+                dt_localized = BRUSSELS_TZ.localize(datetime.combine(date, time))
+                # Normalize to UTC for storage
+                dt_utc = dt_localized.astimezone(pytz.utc)
                 
                 # Create session
                 Session = sessionmaker(bind=engine)
@@ -91,7 +93,7 @@ def main():
                 
                 try:
                     new_metric = KalinMetric(
-                        timestamp=dt,
+                        timestamp=dt_utc,
                         weight=weight if weight > 0 else None,
                         height=height if height > 0 else None,
                         head_size=head_size if head_size > 0 else None,
@@ -104,7 +106,7 @@ def main():
                     )
                     session.add(new_metric)
                     session.commit()
-                    st.success(f"Metrics saved successfully! (At {dt.strftime('%H:%M')})")
+                    st.success(f"Metrics saved! (Time: {dt_localized.strftime('%H:%M')} Brussels)")
                 except Exception as e:
                     st.error(f"Error saving data: {e}")
                 finally:
@@ -118,8 +120,11 @@ def main():
         df = pd.read_sql(query, engine)
 
         if not df.empty:
-            # Ensure timestamp is datetime and converted to Brussels
-            df['timestamp'] = pd.to_datetime(df['timestamp']).dt.tz_localize('UTC').dt.tz_convert(BRUSSELS_TZ)
+            # Robust conversion to Brussels Time
+            df['timestamp'] = pd.to_datetime(df['timestamp'])
+            if df['timestamp'].dt.tz is None:
+                df['timestamp'] = df['timestamp'].dt.tz_localize('UTC')
+            df['timestamp'] = df['timestamp'].dt.tz_convert(BRUSSELS_TZ)
             df['date'] = df['timestamp'].dt.date
 
             # View Toggle
