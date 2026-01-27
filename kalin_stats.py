@@ -163,9 +163,14 @@ def main():
                         'id': 'count' # Frequency
                     }).reset_index().rename(columns={'id': 'frequency'})
                     
+                    # Ensure numeric types for Plotly wide-form
+                    feed_cols = ['feed_formula', 'feed_breast', 'feed_bottle', 'feed_total']
+                    daily_feed[feed_cols] = daily_feed[feed_cols].fillna(0).astype(float)
+                    
                     # Feed Volume Chart
                     fig_vol = px.bar(daily_feed, x='date', y=['feed_formula', 'feed_breast', 'feed_bottle'],
                                     title="Daily Feeding Volume (ml)",
+                                    labels={'value': 'Volume (ml)', 'variable': 'Type'},
                                     barmode='stack',
                                     template="plotly_dark")
                     st.plotly_chart(fig_vol, use_container_width=True)
@@ -185,13 +190,16 @@ def main():
                     if not diaper_df.empty:
                         daily_diaper = diaper_df.groupby(['date', 'diaper_type']).size().unstack(fill_value=0).reset_index()
                         
-                        # Ensure all categories exist for plotting
-                        for d_type in ["Wet", "Mixed", "Dry"]:
+                        # Ensure all categories exist and are float for Plotly
+                        d_types = ["Wet", "Mixed", "Dry"]
+                        for d_type in d_types:
                             if d_type not in daily_diaper.columns:
                                 daily_diaper[d_type] = 0
+                            daily_diaper[d_type] = daily_diaper[d_type].astype(float)
                         
-                        fig_diaper = px.bar(daily_diaper, x='date', y=["Wet", "Mixed", "Dry"],
+                        fig_diaper = px.bar(daily_diaper, x='date', y=d_types,
                                            title="Daily Diaper Counts",
+                                           labels={'value': 'Count', 'variable': 'Type'},
                                            barmode='stack',
                                            template="plotly_dark")
                         st.plotly_chart(fig_diaper, use_container_width=True)
