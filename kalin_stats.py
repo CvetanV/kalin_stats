@@ -124,129 +124,125 @@ def main():
             df['timestamp'] = df['timestamp'].dt.tz_convert(BRUSSELS_TZ)
             df['date'] = df['timestamp'].dt.date
 
-            # View Toggle
-            view_mode = st.radio("View Mode", ["Raw Historical Data", "Daily Aggregations"], horizontal=True)
-
-            if view_mode == "Raw Historical Data":
+            # --- Filter & Aggregation UI ---
+            st.subheader("Filters & View Options")
+            col_f1, col_f2, col_f3 = st.columns([2, 1, 1])
+            
+            with col_f1:
+                # Date Range Selector
+                min_date = df['date'].min()
+                max_date = df['date'].max()
+                date_range = st.date_input("Select Date Range", value=(min_date, max_date), min_value=min_date, max_value=max_date)
+            
+            with col_f2:
+                # Granularity Selector
+                granularity = st.selectbox("Granularity", ["Raw", "Hourly", "Daily", "Weekly", "Monthly"], index=0)
+            
+            with col_f3:
                 # Metrics to filter
                 numerical_metrics = [
                     'weight', 'height', 'head_size', 'temperature', 
                     'feed_formula', 'feed_breast', 'feed_bottle', 'feed_total'
                 ]
-                
-                col_f1, col_f2 = st.columns([3, 1])
-                with col_f1:
-                    selected_metrics = st.multiselect(
-                        "Select numerical metrics to display",
-                        options=numerical_metrics,
-                        default=['weight', 'feed_total']
-                    )
-                with col_f2:
-                    show_diapers = st.checkbox("Show Diaper Changes", value=True)
+                selected_metrics = st.multiselect("Metrics to Plot", options=numerical_metrics, default=['weight', 'feed_total'])
 
-                if selected_metrics:
-                    # Prepare data for plotting
-                    melted_df = df.melt(id_vars=['timestamp'], value_vars=selected_metrics, 
-                                       var_name='Metric', value_name='Value')
-                    
-                    # Remove null values for the graph
-                    melted_df = melted_df.dropna(subset=['Value'])
-
-                    fig = px.line(melted_df, x='timestamp', y='Value', color='Metric',
-                                 title="Kalin's Metrics Over Time (Raw Logs)",
-                                 markers=True,
-                                 template="plotly_dark")
-                    
-                    fig.update_layout(xaxis_title="Time", yaxis_title="Value")
-                    st.plotly_chart(fig, use_container_width=True)
-                
-                if show_diapers:
-                    st.write("**Diaper Changes Timeline**")
-                    diaper_df_raw = df[df['diaper_type'].notnull()]
-                    if not diaper_df_raw.empty:
-                        fig_diaper_raw = px.scatter(diaper_df_raw, x='timestamp', y='diaper_type', 
-                                                   color='diaper_type', title="Diaper Changes (Raw Events)",
-                                                   labels={'diaper_type': 'Type'},
-                                                   template="plotly_dark", height=300)
-                        st.plotly_chart(fig_diaper_raw, use_container_width=True)
-                    else:
-                        st.info("No diaper data recorded yet.")
-                
-                if not selected_metrics and not show_diapers:
-                    st.info("Please select at least one metric or show diapers to visualize.")
-
+            # Apply Date Range Filter
+            if len(date_range) == 2:
+                start_date, end_date = date_range
+                df_filtered = df[(df['date'] >= start_date) & (df['date'] <= end_date)].copy()
             else:
-                # Daily Aggregations logic
-                st.subheader("Daily Insights")
-                
-                col_agg1, col_agg2 = st.columns(2)
-                
-                with col_agg1:
-                    # Feeding Aggregations
-                    st.write("**Feeding Patterns**")
-                    daily_feed = df.groupby('date').agg({
-                        'feed_formula': 'sum',
-                        'feed_breast': 'sum',
-                        'feed_bottle': 'sum',
-                        'feed_total': 'sum',
-                        'id': 'count' # Frequency
-                    }).reset_index().rename(columns={'id': 'frequency'})
-                    
-                    # Ensure numeric types for Plotly wide-form
-                    feed_cols = ['feed_formula', 'feed_breast', 'feed_bottle', 'feed_total']
-                    daily_feed[feed_cols] = daily_feed[feed_cols].fillna(0).astype(float)
-                    
-                    # Feed Volume Chart
-                    fig_vol = px.bar(daily_feed, x='date', y=['feed_formula', 'feed_breast', 'feed_bottle'],
-                                    title="Daily Feeding Volume (ml)",
-                                    labels={'value': 'Volume (ml)', 'variable': 'Type'},
-                                    barmode='stack',
-                                    template="plotly_dark")
-                    st.plotly_chart(fig_vol, use_container_width=True)
-                    
-                    # Feed Frequency Chart
-                    fig_freq = px.line(daily_feed, x='date', y='frequency',
-                                      title="Daily Feeding Frequency (Counts)",
-                                      markers=True,
-                                      template="plotly_dark")
-                    st.plotly_chart(fig_freq, use_container_width=True)
+                df_filtered = df.copy()
 
-                with col_agg2:
-                    # Diaper Aggregations
-                    st.write("**Diaper Patterns**")
-                    # Pivot diaper types to get daily counts
-                    diaper_df = df[df['diaper_type'].notnull()].copy()
+            if not df_filtered.empty:
+                # --- Aggregation Logic ---
+                if granularity != "Raw":
+                    resample_map = {
+                        "Hourly": "H",
+                        "Daily": "D",
+                        "Weekly": "W",
+                        "Monthly": "ME"
+                    }
+                    freq = resample_map[granularity]
+                    
+                    # Columns to aggregate
+                    sum_cols = ['feed_formula', 'feed_breast', 'feed_bottle', 'feed_total']
+                    mean_cols = ['weight', 'height', 'head_size', 'temperature']
+                    
+                    # Numerical Resampling
+                    df_filtered.set_index('timestamp', inplace=True)
+                    df_agg_num = df_filtered[mean_cols].resample(freq).mean()
+                    df_agg_sum = df_filtered[sum_cols].resample(freq).sum()
+                    df_freq = df_filtered['id'].resample(freq).count().rename('frequency')
+                    
+                    # Diaper Resampling
+                    # We need to pivot diaper types first
+                    diaper_df = df_filtered[df_filtered['diaper_type'].notnull()].copy()
                     if not diaper_df.empty:
-                        daily_diaper = diaper_df.groupby(['date', 'diaper_type']).size().unstack(fill_value=0).reset_index()
-                        
-                        # Ensure all categories exist and are float for Plotly
-                        d_types = ["Wet", "Mixed", "Dry"]
-                        for d_type in d_types:
-                            if d_type not in daily_diaper.columns:
-                                daily_diaper[d_type] = 0
-                            daily_diaper[d_type] = daily_diaper[d_type].astype(float)
-                        
-                        fig_diaper = px.bar(daily_diaper, x='date', y=d_types,
-                                           title="Daily Diaper Counts",
-                                           labels={'value': 'Count', 'variable': 'Type'},
-                                           barmode='stack',
-                                           template="plotly_dark")
-                        st.plotly_chart(fig_diaper, use_container_width=True)
-                        
-                        # Show total diaper count trend
-                        daily_diaper['Total'] = daily_diaper[d_types].sum(axis=1)
-                        fig_diaper_total = px.line(daily_diaper, x='date', y='Total',
-                                                 title="Total Daily Diapers",
-                                                 markers=True,
-                                                 template="plotly_dark")
-                        st.plotly_chart(fig_diaper_total, use_container_width=True)
+                        diaper_pivot = pd.get_dummies(diaper_df['diaper_type']).resample(freq).sum()
+                        for d_type in ["Wet", "Mixed", "Dry"]:
+                            if d_type not in diaper_pivot.columns:
+                                diaper_pivot[d_type] = 0.0
+                        diaper_pivot['diaper_total'] = diaper_pivot[["Wet", "Mixed", "Dry"]].sum(axis=1)
                     else:
-                        st.info("No diaper data recorded yet for aggregation.")
+                        diaper_pivot = pd.DataFrame(index=df_agg_num.index, columns=["Wet", "Mixed", "Dry", "diaper_total"]).fillna(0.0)
+                    
+                    # Merge all
+                    df_plot = pd.concat([df_agg_num, df_agg_sum, df_freq, diaper_pivot], axis=1).reset_index()
+                    x_col = 'timestamp'
+                else:
+                    df_plot = df_filtered.copy()
+                    x_col = 'timestamp'
 
-            # Show Recent Logs (Always shown at bottom)
-            st.write("---")
-            st.subheader("Recent Logs")
-            st.dataframe(df.sort_values('timestamp', ascending=False), use_container_width=True)
+                # --- Visualization ---
+                st.write("---")
+                col_chart1, col_chart2 = st.columns(2)
+
+                with col_chart1:
+                    # Main Numerical Trends
+                    if selected_metrics:
+                        melted_df = df_plot.melt(id_vars=[x_col], value_vars=selected_metrics, 
+                                               var_name='Metric', value_name='Value').dropna(subset=['Value'])
+                        fig = px.line(melted_df, x=x_col, y='Value', color='Metric',
+                                     title=f"Numerical Trends ({granularity})",
+                                     markers=True, template="plotly_dark")
+                        st.plotly_chart(fig, use_container_width=True)
+                    
+                    # Feeding Frequency Trend
+                    if granularity != "Raw":
+                        fig_freq = px.line(df_plot, x=x_col, y='frequency',
+                                          title=f"Feeding Frequency ({granularity})",
+                                          markers=True, template="plotly_dark")
+                        st.plotly_chart(fig_freq, use_container_width=True)
+
+                with col_chart2:
+                    # Diaper Patterns
+                    d_types = ["Wet", "Mixed", "Dry"]
+                    if granularity != "Raw":
+                        fig_diaper = px.bar(df_plot, x=x_col, y=d_types,
+                                           title=f"Diaper Patterns ({granularity})",
+                                           barmode='stack', template="plotly_dark")
+                        st.plotly_chart(fig_diaper, use_container_width=True)
+                    else:
+                        st.write("**Diaper Events timeline**")
+                        diaper_raw = df_filtered[df_filtered['diaper_type'].notnull()]
+                        if not diaper_raw.empty:
+                            fig_diaper_raw = px.scatter(diaper_raw, x='timestamp', y='diaper_type', 
+                                                       color='diaper_type', title="Diaper Changes (Raw)",
+                                                       template="plotly_dark", height=300)
+                            st.plotly_chart(fig_diaper_raw, use_container_width=True)
+                        else:
+                            st.info("No diaper data in this range.")
+
+                # Show filtered logs
+                st.write("---")
+                st.subheader(f"Filtered Logs ({len(df_filtered)} records)")
+                # Ensure we sort by timestamp even if it was set as index
+                if df_filtered.index.name == 'timestamp':
+                    st.dataframe(df_filtered.sort_index(ascending=False), use_container_width=True)
+                else:
+                    st.dataframe(df_filtered.sort_values('timestamp', ascending=False), use_container_width=True)
+            else:
+                st.warning("No data found for the selected date range.")
 
         else:
             st.info("No data found. Go to 'Enter Data' to add your first logs.")
