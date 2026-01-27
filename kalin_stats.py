@@ -172,7 +172,10 @@ def main():
                     df_filtered.set_index('timestamp', inplace=True)
                     df_agg_num = df_filtered[mean_cols].resample(freq).mean()
                     df_agg_sum = df_filtered[sum_cols].resample(freq).sum()
-                    df_freq = df_filtered['id'].resample(freq).count().rename('frequency')
+                    
+                    # Frequency logic: only count events where feeding actually happened
+                    df_feed_events = df_filtered[df_filtered['feed_total'] > 0]
+                    df_freq = df_feed_events['id'].resample(freq).count().rename('frequency')
                     
                     # Diaper Resampling
                     # We need to pivot diaper types first
