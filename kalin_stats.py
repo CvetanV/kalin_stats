@@ -198,10 +198,11 @@ def main():
 
                 # --- Visualization ---
                 st.write("---")
-                col_chart1, col_chart2 = st.columns(2)
-
-                with col_chart1:
-                    # Main Numerical Trends
+                
+                # Row 1: Numerical Trends & Diaper Patterns
+                row1_col1, row1_col2 = st.columns(2)
+                
+                with row1_col1:
                     if selected_metrics:
                         melted_df = df_plot.melt(id_vars=[x_col], value_vars=selected_metrics, 
                                                var_name='Metric', value_name='Value').dropna(subset=['Value'])
@@ -209,35 +210,19 @@ def main():
                                      title=f"Numerical Trends ({granularity})",
                                      markers=True, template="plotly_dark")
                         st.plotly_chart(fig, use_container_width=True)
-                    
-                    # Feeding Frequency & Dedicated Weight Trend
-                    if granularity != "Raw":
-                        col_sub1, col_sub2 = st.columns(2)
-                        with col_sub1:
-                            fig_freq = px.line(df_plot, x=x_col, y='frequency',
-                                              title=f"Feeding Frequency ({granularity})",
-                                              markers=True, template="plotly_dark")
-                            st.plotly_chart(fig_freq, use_container_width=True)
-                        
-                        with col_sub2:
-                            # Dedicated Weight Chart
-                            if 'weight' in df_plot.columns:
-                                fig_weight = px.line(df_plot.dropna(subset=['weight']), x=x_col, y='weight',
-                                                   title=f"Weight Trend ({granularity})",
-                                                   markers=True, template="plotly_dark",
-                                                   line_shape='linear', color_discrete_sequence=['#00CC96'])
-                                st.plotly_chart(fig_weight, use_container_width=True)
+                    else:
+                        st.info("Select metrics to see numerical trends.")
 
-                with col_chart2:
-                    # Diaper Patterns
+                with row1_col2:
                     d_types = ["Wet", "Mixed", "Dry"]
                     if granularity != "Raw":
                         fig_diaper = px.bar(df_plot, x=x_col, y=d_types,
                                            title=f"Diaper Patterns ({granularity})",
+                                           labels={'value': 'Count', 'variable': 'Type'},
                                            barmode='stack', template="plotly_dark")
                         st.plotly_chart(fig_diaper, use_container_width=True)
                     else:
-                        st.write("**Diaper Events timeline**")
+                        st.write("**Diaper Events Timeline**")
                         diaper_raw = df_filtered[df_filtered['diaper_type'].notnull()]
                         if not diaper_raw.empty:
                             fig_diaper_raw = px.scatter(diaper_raw, x='timestamp', y='diaper_type', 
@@ -246,6 +231,24 @@ def main():
                             st.plotly_chart(fig_diaper_raw, use_container_width=True)
                         else:
                             st.info("No diaper data in this range.")
+
+                # Row 2: Feeding Frequency & Dedicated Weight Trend (Visible when not Raw)
+                if granularity != "Raw":
+                    row2_col1, row2_col2 = st.columns(2)
+                    
+                    with row2_col1:
+                        fig_freq = px.line(df_plot, x=x_col, y='frequency',
+                                          title=f"Feeding Frequency ({granularity})",
+                                          markers=True, template="plotly_dark")
+                        st.plotly_chart(fig_freq, use_container_width=True)
+                    
+                    with row2_col2:
+                        if 'weight' in df_plot.columns:
+                            fig_weight = px.line(df_plot.dropna(subset=['weight']), x=x_col, y='weight',
+                                               title=f"Weight Trend ({granularity})",
+                                               markers=True, template="plotly_dark",
+                                               line_shape='linear', color_discrete_sequence=['#00CC96'])
+                            st.plotly_chart(fig_weight, use_container_width=True)
 
                 # Show filtered logs
                 st.write("---")
