@@ -210,12 +210,23 @@ def main():
                                      markers=True, template="plotly_dark")
                         st.plotly_chart(fig, use_container_width=True)
                     
-                    # Feeding Frequency Trend
+                    # Feeding Frequency & Dedicated Weight Trend
                     if granularity != "Raw":
-                        fig_freq = px.line(df_plot, x=x_col, y='frequency',
-                                          title=f"Feeding Frequency ({granularity})",
-                                          markers=True, template="plotly_dark")
-                        st.plotly_chart(fig_freq, use_container_width=True)
+                        col_sub1, col_sub2 = st.columns(2)
+                        with col_sub1:
+                            fig_freq = px.line(df_plot, x=x_col, y='frequency',
+                                              title=f"Feeding Frequency ({granularity})",
+                                              markers=True, template="plotly_dark")
+                            st.plotly_chart(fig_freq, use_container_width=True)
+                        
+                        with col_sub2:
+                            # Dedicated Weight Chart
+                            if 'weight' in df_plot.columns:
+                                fig_weight = px.line(df_plot.dropna(subset=['weight']), x=x_col, y='weight',
+                                                   title=f"Weight Trend ({granularity})",
+                                                   markers=True, template="plotly_dark",
+                                                   line_shape='linear', color_discrete_sequence=['#00CC96'])
+                                st.plotly_chart(fig_weight, use_container_width=True)
 
                 with col_chart2:
                     # Diaper Patterns
