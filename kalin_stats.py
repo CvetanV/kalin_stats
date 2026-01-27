@@ -110,40 +110,107 @@ def main():
         if not df.empty:
             # Ensure timestamp is datetime and converted to Brussels
             df['timestamp'] = pd.to_datetime(df['timestamp']).dt.tz_localize('UTC').dt.tz_convert(BRUSSELS_TZ)
-            
-            # Metrics to filter
-            all_metrics = [
-                'weight', 'height', 'head_size', 'temperature', 
-                'feed_formula', 'feed_breast', 'feed_bottle', 'feed_total'
-            ]
-            
-            selected_metrics = st.multiselect(
-                "Select metrics to display on the graph",
-                options=all_metrics,
-                default=['weight', 'feed_total']
-            )
+            df['date'] = df['timestamp'].dt.date
 
-            if selected_metrics:
-                # Prepare data for plotting
-                melted_df = df.melt(id_vars=['timestamp'], value_vars=selected_metrics, 
-                                   var_name='Metric', value_name='Value')
-                
-                # Remove null values for the graph
-                melted_df = melted_df.dropna(subset=['Value'])
+            # View Toggle
+            view_mode = st.radio("View Mode", ["Raw Historical Data", "Daily Aggregations"], horizontal=True)
 
-                fig = px.line(melted_df, x='timestamp', y='Value', color='Metric',
-                             title="Kalin's Metrics Over Time",
-                             markers=True,
-                             template="plotly_dark")
+            if view_mode == "Raw Historical Data":
+                # Metrics to filter
+                all_metrics = [
+                    'weight', 'height', 'head_size', 'temperature', 
+                    'feed_formula', 'feed_breast', 'feed_bottle', 'feed_total'
+                ]
                 
-                fig.update_layout(xaxis_title="Time", yaxis_title="Value")
-                st.plotly_chart(fig, use_container_width=True)
-                
-                # Show Recent Logs
-                st.subheader("Recent Logs")
-                st.dataframe(df.sort_values('timestamp', ascending=False), use_container_width=True)
+                selected_metrics = st.multiselect(
+                    "Select metrics to display on the graph",
+                    options=all_metrics,
+                    default=['weight', 'feed_total']
+                )
+
+                if selected_metrics:
+                    # Prepare data for plotting
+                    melted_df = df.melt(id_vars=['timestamp'], value_vars=selected_metrics, 
+                                       var_name='Metric', value_name='Value')
+                    
+                    # Remove null values for the graph
+                    melted_df = melted_df.dropna(subset=['Value'])
+
+                    fig = px.line(melted_df, x='timestamp', y='Value', color='Metric',
+                                 title="Kalin's Metrics Over Time (Raw Logs)",
+                                 markers=True,
+                                 template="plotly_dark")
+                    
+                    fig.update_layout(xaxis_title="Time", yaxis_title="Value")
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("Please select at least one metric to visualize.")
+
             else:
-                st.info("Please select at least one metric to visualize.")
+                # Daily Aggregations logic
+                st.subheader("Daily Insights")
+                
+                col_agg1, col_agg2 = st.columns(2)
+                
+                with col_agg1:
+                    # Feeding Aggregations
+                    st.write("**Feeding Patterns**")
+                    daily_feed = df.groupby('date').agg({
+                        'feed_formula': 'sum',
+                        'feed_breast': 'sum',
+                        'feed_bottle': 'sum',
+                        'feed_total': 'sum',
+                        'id': 'count' # Frequency
+                    }).reset_index().rename(columns={'id': 'frequency'})
+                    
+                    # Feed Volume Chart
+                    fig_vol = px.bar(daily_feed, x='date', y=['feed_formula', 'feed_breast', 'feed_bottle'],
+                                    title="Daily Feeding Volume (ml)",
+                                    barmode='stack',
+                                    template="plotly_dark")
+                    st.plotly_chart(fig_vol, use_container_width=True)
+                    
+                    # Feed Frequency Chart
+                    fig_freq = px.line(daily_feed, x='date', y='frequency',
+                                      title="Daily Feeding Frequency (Counts)",
+                                      markers=True,
+                                      template="plotly_dark")
+                    st.plotly_chart(fig_freq, use_container_width=True)
+
+                with col_agg2:
+                    # Diaper Aggregations
+                    st.write("**Diaper Patterns**")
+                    # Pivot diaper types to get daily counts
+                    diaper_df = df[df['diaper_type'].notnull()].copy()
+                    if not diaper_df.empty:
+                        daily_diaper = diaper_df.groupby(['date', 'diaper_type']).size().unstack(fill_value=0).reset_index()
+                        
+                        # Ensure all categories exist for plotting
+                        for d_type in ["Wet", "Mixed", "Dry"]:
+                            if d_type not in daily_diaper.columns:
+                                daily_diaper[d_type] = 0
+                        
+                        fig_diaper = px.bar(daily_diaper, x='date', y=["Wet", "Mixed", "Dry"],
+                                           title="Daily Diaper Counts",
+                                           barmode='stack',
+                                           template="plotly_dark")
+                        st.plotly_chart(fig_diaper, use_container_width=True)
+                        
+                        # Show total diaper count trend
+                        daily_diaper['Total'] = daily_diaper[["Wet", "Mixed", "Dry"]].sum(axis=1)
+                        fig_diaper_total = px.line(daily_diaper, x='date', y='Total',
+                                                 title="Total Daily Diapers",
+                                                 markers=True,
+                                                 template="plotly_dark")
+                        st.plotly_chart(fig_diaper_total, use_container_width=True)
+                    else:
+                        st.info("No diaper data recorded yet for aggregation.")
+
+            # Show Recent Logs (Always shown at bottom)
+            st.write("---")
+            st.subheader("Recent Logs")
+            st.dataframe(df.sort_values('timestamp', ascending=False), use_container_width=True)
+
         else:
             st.info("No data found. Go to 'Enter Data' to add your first logs.")
 
