@@ -21,7 +21,7 @@ Base = declarative_base()
 class KalinMetric(Base):
     __tablename__ = 'kalin_metrics'
     id = Column(Integer, primary_key=True)
-    timestamp = Column(DateTime, default=lambda: get_now_brussels(), nullable=False)
+    timestamp = Column(DateTime, nullable=False) # Explicitly set from form
     weight = Column(Float)
     height = Column(Float)
     head_size = Column(Float)
