@@ -56,8 +56,9 @@ def main():
             
             with col1:
                 st.subheader("General Metrics")
-                date = st.date_input("Date", value=st.session_state.selected_date)
-                time = st.time_input("Time", value=st.session_state.selected_time)
+                # Using keys directly binds widgets to session state
+                date = st.date_input("Date", key="selected_date")
+                time = st.time_input("Time", key="selected_time")
                 weight = st.number_input("Weight (kg)", min_value=0.0, step=0.01, format="%.2f", value=0.0)
                 height = st.number_input("Height (cm)", min_value=0.0, step=0.1, format="%.1f", value=0.0)
                 head_size = st.number_input("Head Size (cm)", min_value=0.0, step=0.1, format="%.1f", value=0.0)
@@ -75,14 +76,10 @@ def main():
             submit = st.form_submit_button("Save Metrics")
 
             if submit:
-                # Update session state for persistence
-                st.session_state.selected_date = date
-                st.session_state.selected_time = time
-                
                 # Calculate total feeding
                 total_feed = f_formula + f_breast + f_bottle
                 
-                # Combine date and time (localized to Brussels)
+                # Combine date and time (using the values from widgets tied to state)
                 dt_localized = BRUSSELS_TZ.localize(datetime.combine(date, time))
                 # Normalize to UTC for storage
                 dt_utc = dt_localized.astimezone(pytz.utc)
