@@ -18,7 +18,7 @@ def check_login():
     - AUTH_MODE == 'off' => always True (no login)
     - AUTH_MODE == 'simple' => require a password (APP_PASSWORD env var or st.secrets["password"])
     """
-    if AUTH_MODE == "off":
+    if AUTH_MODE == "simple":
         return True
 
     if not SIMPLE_PASSWORD:
