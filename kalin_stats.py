@@ -13,6 +13,40 @@ BRUSSELS_TZ = pytz.timezone('Europe/Brussels')
 def get_now_brussels():
     return datetime.now(BRUSSELS_TZ)
 
+def check_login():
+    """Returns True if the user is allowed in.
+    - AUTH_MODE == 'off' => always True (no login)
+    - AUTH_MODE == 'simple' => require a password (APP_PASSWORD env var or st.secrets["password"])
+    """
+    if AUTH_MODE == "off":
+        return True
+
+    if not SIMPLE_PASSWORD:
+        st.warning("Auth is enabled but no password is set. Set APP_PASSWORD in st.secrets or env.")
+        return False
+
+    password = SIMPLE_PASSWORD
+
+    if st.session_state.get("auth_ok"):
+        with st.sidebar:
+            if st.button("Logout"):
+                st.session_state["auth_ok"] = False
+                st.rerun()
+        return True
+
+    with st.sidebar:
+        st.subheader("🔐 Login")
+        pw = st.text_input("Password", type="password")
+        if st.button("Login"):
+            if pw == password:
+                st.session_state["auth_ok"] = True
+                st.success("Logged in!")
+                st.rerun()
+            else:
+                st.error("Invalid password")
+    return False
+
+
 # --- Database Setup ---
 DB_URL = "postgresql+psycopg2://neondb_owner:npg_XH3bh0KCqDzn@ep-frosty-pond-a91rmd9d-pooler.gwc.azure.neon.tech/neondb?sslmode=require"
 engine = create_engine(DB_URL)
@@ -38,6 +72,9 @@ Base.metadata.create_all(engine)
 def main():
     st.set_page_config(page_title="Kalin's Growth & Metrics", layout="wide")
     st.title("👶 Kalin's Growth & Metrics Tracker")
+
+    if not check_login():
+        st.stop()
 
     # Initialize Session State for Date and Time
     now = get_now_brussels()
