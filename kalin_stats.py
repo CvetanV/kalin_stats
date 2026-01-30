@@ -137,7 +137,7 @@ def main():
             
             with col_f2:
                 # Granularity Selector
-                granularity = st.selectbox("Granularity", ["Hourly", "Daily", "Weekly", "Monthly", "Raw"], index=0)
+                granularity = st.selectbox("Granularity", ["Daily", "Hourly", "Weekly", "Monthly", "Raw"], index=0)
             
             with col_f3:
                 # Metrics to filter
