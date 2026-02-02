@@ -14,7 +14,7 @@ def get_now_brussels():
     return datetime.now(BRUSSELS_TZ)
 
 # --- Database Setup ---
-DB_URL = "postgresql+psycopg2://neondb_owner:npg_XH3bh0KCqDzn@ep-frosty-pond-a91rmd9d-pooler.gwc.azure.neon.tech/neondb?sslmode=require"
+DB_URL = st.secrets["DB_URL"]
 engine = create_engine(DB_URL)
 Base = declarative_base()
 
