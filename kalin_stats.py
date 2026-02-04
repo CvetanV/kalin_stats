@@ -34,10 +34,15 @@ class KalinMetric(Base):
     feed_bottle = Column(Float)
     feed_total = Column(Float)
 
-# Create the table
-Base.metadata.create_all(engine)
+@st.cache_resource
+def init_db():
+    """Initialize the database tables once."""
+    Base.metadata.create_all(engine)
 
 def main():
+    # Ensure DB is initialized (cached)
+    init_db()
+    
     st.set_page_config(page_title="Kalin's Growth & Metrics", layout="wide")
     st.title("👶 Kalin's Growth & Metrics Tracker")
 
