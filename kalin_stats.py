@@ -15,23 +15,7 @@ def get_now_brussels():
 
 # --- Database Setup ---
 DB_URL = "postgresql+psycopg2://neondb_owner:npg_XH3bh0KCqDzn@ep-frosty-pond-a91rmd9d-pooler.gwc.azure.neon.tech/neondb?sslmode=require"
-
-# Use Streamlit's resource cache for the DB engine. Newer Streamlit provides
-# `st.cache_resource`; older versions used `st.experimental_singleton`.
-# Provide a backwards-compatible alias so the decorator call doesn't fail.
-if hasattr(st, "cache_resource"):
-    cache_resource = st.cache_resource
-elif hasattr(st, "experimental_singleton"):
-    cache_resource = st.experimental_singleton
-else:
-    def cache_resource(func):
-        return func
-
-@cache_resource
-def get_engine():
-    return create_engine(DB_URL)
-
-engine = get_engine()
+engine = create_engine(DB_URL)
 Base = declarative_base()
 
 class KalinMetric(Base):
@@ -48,12 +32,8 @@ class KalinMetric(Base):
     feed_bottle = Column(Float)
     feed_total = Column(Float)
 
-# Create the table (best-effort). Avoid failing at import time if DB is unreachable.
-try:
-    Base.metadata.create_all(engine)
-except Exception as e:
-    import logging
-    logging.warning(f"Could not create DB tables at import time: {e}")
+# Create the table
+Base.metadata.create_all(engine)
 
 def main():
     st.set_page_config(page_title="Kalin's Growth & Metrics", layout="wide")
