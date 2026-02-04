@@ -13,8 +13,9 @@ BRUSSELS_TZ = pytz.timezone('Europe/Brussels')
 def get_now_brussels():
     return datetime.now(BRUSSELS_TZ)
 
+
 # --- Database Setup ---
-DB_URL = "postgresql+psycopg2://neondb_owner:npg_XH3bh0KCqDzn@ep-frosty-pond-a91rmd9d-pooler.gwc.azure.neon.tech/neondb?sslmode=require"
+DB_URL = st.secrets["DB_URL"]
 engine = create_engine(DB_URL)
 Base = declarative_base()
 
@@ -136,7 +137,7 @@ def main():
             
             with col_f2:
                 # Granularity Selector
-                granularity = st.selectbox("Granularity", ["Raw", "Hourly", "Daily", "Weekly", "Monthly"], index=0)
+                granularity = st.selectbox("Granularity", ["Daily", "Hourly", "Weekly", "Monthly", "Raw"], index=0)
             
             with col_f3:
                 # Metrics to filter
@@ -144,7 +145,7 @@ def main():
                     'weight', 'height', 'head_size', 'temperature', 
                     'feed_formula', 'feed_breast', 'feed_bottle', 'feed_total'
                 ]
-                selected_metrics = st.multiselect("Metrics to Plot", options=numerical_metrics, default=['weight', 'feed_total'])
+                selected_metrics = st.multiselect("Metrics to Plot", options=numerical_metrics, default=['feed_total'])
 
             # Apply Date Range Filter
             if len(date_range) == 2:
