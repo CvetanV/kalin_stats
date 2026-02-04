@@ -3,9 +3,11 @@ import pandas as pd
 from sqlalchemy import create_engine, Column, Integer, Float, String, DateTime, Text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import NullPool
 from datetime import datetime
 import pytz
 import plotly.express as px
+import time
 
 # --- Configuration ---
 BRUSSELS_TZ = pytz.timezone('Europe/Brussels')
@@ -13,31 +15,15 @@ BRUSSELS_TZ = pytz.timezone('Europe/Brussels')
 def get_now_brussels():
     return datetime.now(BRUSSELS_TZ)
 
-# --- Database Setup ---
-DB_URL = "postgresql+psycopg2://neondb_owner:npg_XH3bh0KCqDzn@ep-frosty-pond-a91rmd9d-pooler.gwc.azure.neon.tech/neondb?sslmode=require"
 
-# Use Streamlit's resource cache for the DB engine. Newer Streamlit provides
-# `st.cache_resource`; older versions used `st.experimental_singleton`.
-# Provide a backwards-compatible alias so the decorator call doesn't fail.
-if hasattr(st, "cache_resource"):
-    cache_resource = st.cache_resource
-elif hasattr(st, "experimental_singleton"):
-    cache_resource = st.experimental_singleton
-else:
-    def cache_resource(func):
-        return func
-
-@cache_resource
-def get_engine():
-    return create_engine(DB_URL)
-
-engine = get_engine()
+# --- Database Setup (lazy engine) ---
+DB_URL = st.secrets["DB_URL"]
 Base = declarative_base()
 
 class KalinMetric(Base):
     __tablename__ = 'kalin_metrics'
     id = Column(Integer, primary_key=True)
-    timestamp = Column(DateTime(timezone=True), nullable=False) 
+    timestamp = Column(DateTime(timezone=True), nullable=False)
     weight = Column(Float)
     height = Column(Float)
     head_size = Column(Float)
@@ -48,16 +34,30 @@ class KalinMetric(Base):
     feed_bottle = Column(Float)
     feed_total = Column(Float)
 
-# Create the table (best-effort). Avoid failing at import time if DB is unreachable.
-try:
+@st.experimental_singleton
+def get_engine():
+    # Use NullPool to avoid persistent DB connections that keep Neon compute running.
+    # The singleton keeps the engine object in-process, but connections are not pooled server-side.
+    return create_engine(DB_URL, poolclass=NullPool)
+
+def ensure_tables():
+    engine = get_engine()
     Base.metadata.create_all(engine)
-except Exception as e:
-    import logging
-    logging.warning(f"Could not create DB tables at import time: {e}")
+
+# Cached loader for Trends with manual refresh support
+@st.cache_data(ttl=300)
+def load_metrics(refresh_key: int = 0):
+    engine = get_engine()
+    query = "SELECT * FROM kalin_metrics ORDER BY timestamp ASC"
+    return pd.read_sql(query, engine)
+
 
 def main():
     st.set_page_config(page_title="Kalin's Growth & Metrics", layout="wide")
     st.title("👶 Kalin's Growth & Metrics Tracker")
+
+    # Ensure DB schema exists on startup (runs once per process)
+    ensure_tables()
 
     # Initialize Session State for Date and Time
     now = get_now_brussels()
@@ -73,17 +73,17 @@ def main():
         st.header("New Measurements")
         with st.form("metrics_form", clear_on_submit=False):
             col1, col2 = st.columns(2)
-            
+
             with col1:
                 st.subheader("General Metrics")
                 # Using keys directly binds widgets to session state
                 date = st.date_input("Date", key="selected_date")
-                time = st.time_input("Time", key="selected_time")
+                time_input = st.time_input("Time", key="selected_time")
                 weight = st.number_input("Weight (kg)", min_value=0.0, step=0.01, format="%.2f", value=0.0)
                 height = st.number_input("Height (cm)", min_value=0.0, step=0.1, format="%.1f", value=0.0)
                 head_size = st.number_input("Head Size (cm)", min_value=0.0, step=0.1, format="%.1f", value=0.0)
                 temp = st.number_input("Temperature (°C)", min_value=0.0, step=0.1, format="%.1f", value=0.0)
-            
+
             with col2:
                 st.subheader("Feeding & Diaper")
                 diaper = st.selectbox("Diaper Change", ["N/A", "Wet", "Mixed", "Dry"])
@@ -98,16 +98,16 @@ def main():
             if submit:
                 # Calculate total feeding
                 total_feed = f_formula + f_breast + f_bottle
-                
+
                 # Combine date and time (using the values from widgets tied to state)
-                dt_localized = BRUSSELS_TZ.localize(datetime.combine(date, time))
+                dt_localized = BRUSSELS_TZ.localize(datetime.combine(date, time_input))
                 # Normalize to UTC for storage
                 dt_utc = dt_localized.astimezone(pytz.utc)
-                
-                # Create session
-                Session = sessionmaker(bind=engine)
+
+                # Create session (short-lived)
+                Session = sessionmaker(bind=get_engine())
                 session = Session()
-                
+
                 try:
                     new_metric = KalinMetric(
                         timestamp=dt_utc,
@@ -124,6 +124,15 @@ def main():
                     session.add(new_metric)
                     session.commit()
                     st.success(f"Metrics saved! (Time: {dt_localized.strftime('%H:%M')} Brussels)")
+
+                    # Invalidate cache after write so Trends shows fresh data on next load
+                    try:
+                        # Using cache_data invalidation by calling load_metrics.cache_clear() if available
+                        load_metrics.clear()
+                    except Exception:
+                        # For compatibility with Streamlit versions where clear() may differ, ignore failures
+                        pass
+
                 except Exception as e:
                     st.error(f"Error saving data: {e}")
                 finally:
@@ -131,10 +140,10 @@ def main():
 
     with tab_trends:
         st.header("Growth & Activity Trends")
-        
-        # Load data
-        query = "SELECT * FROM kalin_metrics ORDER BY timestamp ASC"
-        df = pd.read_sql(query, engine)
+
+        # Manual refresh button to control when we hit the DB
+        refresh = st.button("Refresh data")
+        df = load_metrics(int(time.time()) if refresh else 0)
 
         if not df.empty:
             # Robust conversion to Brussels Time
@@ -147,24 +156,24 @@ def main():
             # --- Filter & Aggregation UI ---
             st.subheader("Filters & View Options")
             col_f1, col_f2, col_f3 = st.columns([2, 1, 1])
-            
+
             with col_f1:
                 # Date Range Selector
                 min_date = df['date'].min()
                 max_date = df['date'].max()
                 date_range = st.date_input("Select Date Range", value=(min_date, max_date), min_value=min_date, max_value=max_date)
-            
+
             with col_f2:
                 # Granularity Selector
-                granularity = st.selectbox("Granularity", ["Raw", "Hourly", "Daily", "Weekly", "Monthly"], index=0)
-            
+                granularity = st.selectbox("Granularity", ["Daily", "Hourly", "Weekly", "Monthly", "Raw"], index=0)
+
             with col_f3:
                 # Metrics to filter
                 numerical_metrics = [
-                    'weight', 'height', 'head_size', 'temperature', 
+                    'weight', 'height', 'head_size', 'temperature',
                     'feed_formula', 'feed_breast', 'feed_bottle', 'feed_total'
                 ]
-                selected_metrics = st.multiselect("Metrics to Plot", options=numerical_metrics, default=['weight', 'feed_total'])
+                selected_metrics = st.multiselect("Metrics to Plot", options=numerical_metrics, default=['feed_total'])
 
             # Apply Date Range Filter
             if len(date_range) == 2:
@@ -183,22 +192,21 @@ def main():
                         "Monthly": "ME"
                     }
                     freq = resample_map[granularity]
-                    
+
                     # Columns to aggregate
                     sum_cols = ['feed_formula', 'feed_breast', 'feed_bottle', 'feed_total']
                     mean_cols = ['weight', 'height', 'head_size', 'temperature']
-                    
+
                     # Numerical Resampling
                     df_filtered.set_index('timestamp', inplace=True)
                     df_agg_num = df_filtered[mean_cols].resample(freq).mean()
                     df_agg_sum = df_filtered[sum_cols].resample(freq).sum()
-                    
+
                     # Frequency logic: only count events where feeding actually happened
                     df_feed_events = df_filtered[df_filtered['feed_total'] > 0]
                     df_freq = df_feed_events['id'].resample(freq).count().rename('frequency')
-                    
+
                     # Diaper Resampling
-                    # We need to pivot diaper types first
                     diaper_df = df_filtered[df_filtered['diaper_type'].notnull()].copy()
                     if not diaper_df.empty:
                         diaper_pivot = pd.get_dummies(diaper_df['diaper_type']).resample(freq).sum()
@@ -208,7 +216,7 @@ def main():
                         diaper_pivot['diaper_total'] = diaper_pivot[["Wet", "Mixed", "Dry"]].sum(axis=1)
                     else:
                         diaper_pivot = pd.DataFrame(index=df_agg_num.index, columns=["Wet", "Mixed", "Dry", "diaper_total"]).fillna(0.0)
-                    
+
                     # Merge all
                     df_plot = pd.concat([df_agg_num, df_agg_sum, df_freq, diaper_pivot], axis=1).reset_index()
                     x_col = 'timestamp'
@@ -218,14 +226,14 @@ def main():
 
                 # --- Visualization ---
                 st.write("---")
-                
+
                 # Row 1: Numerical Trends & Diaper Patterns
                 row1_col1, row1_col2 = st.columns(2)
-                
+
                 with row1_col1:
                     if selected_metrics:
-                        melted_df = df_plot.melt(id_vars=[x_col], value_vars=selected_metrics, 
-                                               var_name='Metric', value_name='Value').dropna(subset=['Value'])
+                        melted_df = df_plot.melt(id_vars=[x_col], value_vars=selected_metrics,
+                                                var_name='Metric', value_name='Value').dropna(subset=['Value'])
                         fig = px.line(melted_df, x=x_col, y='Value', color='Metric',
                                      title=f"Numerical Trends ({granularity})",
                                      markers=True, template="plotly_dark")
@@ -245,7 +253,7 @@ def main():
                         st.write("**Diaper Events Timeline**")
                         diaper_raw = df_filtered[df_filtered['diaper_type'].notnull()]
                         if not diaper_raw.empty:
-                            fig_diaper_raw = px.scatter(diaper_raw, x='timestamp', y='diaper_type', 
+                            fig_diaper_raw = px.scatter(diaper_raw, x='timestamp', y='diaper_type',
                                                        color='diaper_type', title="Diaper Changes (Raw)",
                                                        template="plotly_dark", height=300)
                             st.plotly_chart(fig_diaper_raw, use_container_width=True)
@@ -255,19 +263,19 @@ def main():
                 # Row 2: Feeding Frequency & Dedicated Weight Trend (Visible when not Raw)
                 if granularity != "Raw":
                     row2_col1, row2_col2 = st.columns(2)
-                    
+
                     with row2_col1:
                         fig_freq = px.line(df_plot, x=x_col, y='frequency',
                                           title=f"Feeding Frequency ({granularity})",
                                           markers=True, template="plotly_dark")
                         st.plotly_chart(fig_freq, use_container_width=True)
-                    
+
                     with row2_col2:
                         if 'weight' in df_plot.columns:
                             fig_weight = px.line(df_plot.dropna(subset=['weight']), x=x_col, y='weight',
-                                               title=f"Weight Trend ({granularity})",
-                                               markers=True, template="plotly_dark",
-                                               line_shape='linear', color_discrete_sequence=['#00CC96'])
+                                                title=f"Weight Trend ({granularity})",
+                                                markers=True, template="plotly_dark",
+                                                line_shape='linear', color_discrete_sequence=['#00CC96'])
                             st.plotly_chart(fig_weight, use_container_width=True)
 
                 # Show filtered logs
@@ -283,6 +291,7 @@ def main():
 
         else:
             st.info("No data found. Go to 'Enter Data' to add your first logs.")
+
 
 if __name__ == "__main__":
     main()
