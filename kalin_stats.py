@@ -3,6 +3,7 @@ import pandas as pd
 from sqlalchemy import create_engine, Column, Integer, Float, String, DateTime, Text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import NullPool
 from datetime import datetime
 import pytz
 import plotly.express as px
@@ -16,7 +17,7 @@ def get_now_brussels():
 
 # --- Database Setup ---
 DB_URL = st.secrets["DB_URL"]
-engine = create_engine(DB_URL)
+engine = create_engine(DB_URL, poolclass=NullPool)
 Base = declarative_base()
 
 class KalinMetric(Base):
@@ -113,9 +114,31 @@ def main():
     with tab_trends:
         st.header("Growth & Activity Trends")
         
-        # Load data
-        query = "SELECT * FROM kalin_metrics ORDER BY timestamp ASC"
-        df = pd.read_sql(query, engine)
+        # Initialize data in session state if not present
+        if 'df' not in st.session_state:
+            st.session_state.df = pd.DataFrame()
+            st.session_state.last_refresh = None
+
+        col_header1, col_header2 = st.columns([4, 1])
+        with col_header1:
+            if st.session_state.last_refresh:
+                st.caption(f"Last updated: {st.session_state.last_refresh}")
+            else:
+                st.caption("No data loaded. Click Refresh to fetch from database.")
+        
+        with col_header2:
+            if st.button("🔄 Refresh Data", use_container_width=True):
+                with st.spinner("Fetching data from Neon..."):
+                    try:
+                        query = "SELECT * FROM kalin_metrics ORDER BY timestamp ASC"
+                        # NullPool ensures the connection is closed after this read
+                        st.session_state.df = pd.read_sql(query, engine)
+                        st.session_state.last_refresh = get_now_brussels().strftime("%Y-%m-%d %H:%M:%S")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error loading data: {e}")
+
+        df = st.session_state.df
 
         if not df.empty:
             # Robust conversion to Brussels Time
