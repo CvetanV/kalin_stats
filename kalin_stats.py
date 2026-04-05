@@ -44,10 +44,35 @@ def main():
     init_db()
     
     st.set_page_config(page_title="Kalin's Growth & Metrics", layout="wide")
-    st.title("👶 Kalin's Growth & Metrics Tracker")
+    
+    # --- Age Calculation ---
+    birth_date = datetime(2026, 1, 12).date()
+    now = get_now_brussels()
+    today = now.date()
+    
+    age_days = (today - birth_date).days
+    age_weeks = age_days // 7
+    age_months = (today.year - birth_date.year) * 12 + today.month - birth_date.month
+    if today.day < birth_date.day:
+        age_months -= 1
+    age_years = age_months // 12
+
+    # --- Header Layout ---
+    col_title, col_age = st.columns([3, 1])
+    with col_title:
+        st.title("👶 Kalin's Growth & Metrics Tracker")
+    with col_age:
+        st.markdown(f"""
+            <div style="text-align: right; padding-top: 10px;">
+                <p style="margin: 0; font-weight: bold; font-size: 1.1em;">Kalin's Age</p>
+                <p style="margin: 0; color: #00d4ff; font-size: 0.9em;">
+                    {age_days} days | {age_weeks} weeks<br>
+                    {age_months} months | {age_years} years
+                </p>
+            </div>
+        """, unsafe_allow_html=True)
 
     # Initialize Session State for Date and Time
-    now = get_now_brussels()
     if 'selected_date' not in st.session_state:
         st.session_state.selected_date = now.date()
     if 'selected_time' not in st.session_state:
